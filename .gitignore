@@ -1,3 +1,7 @@
-.env
 .venv/
+.env
+.adk/
+.dados/
+.testes/
+*.pyc
 __pycache__/
