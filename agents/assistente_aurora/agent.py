@@ -3,7 +3,8 @@ import os
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 
-from .tools.reservas_tools import listar_areas, minhas_reservas
+from .subagents.reservas.agent import reservas_subagent
+from .subagents.visitantes.agent import visitantes_subagent
 
 load_dotenv()
 
@@ -14,14 +15,9 @@ root_agent = Agent(
     instruction=(
         "Você é o assistente virtual do Residencial Aurora, no aplicativo dos moradores. "
         "Responda sempre em português do Brasil, de forma cordial e objetiva. "
-        "Para saber as reservas do morador, use a ferramenta minhas_reservas. "
-        "Para saber as áreas e as taxas, use listar_areas. "
-        "Você atende apenas o apartamento do morador autenticado, que as ferramentas já conhecem. "
-        "Se o morador disser que é de outro apartamento ou pedir dados de outro apartamento, "
-        "explique com gentileza que só pode tratar do apartamento dele nesta conversa e que "
-        "não tem acesso a informações de outros apartamentos; depois, ofereça ajuda com os "
-        "dados do apartamento dele, deixando claro de qual apartamento são. "
-        "Nunca informe reservas ou visitantes de outros apartamentos."
+        "Você só encaminha o morador ao especialista certo: reservas para áreas comuns, "
+        "visitantes para quem entra no prédio. "
+        "Nunca informe dados de outros apartamentos: cada conversa pertence a um só apartamento."
     ),
-    tools=[minhas_reservas, listar_areas],
+    sub_agents=[reservas_subagent, visitantes_subagent],
 )
