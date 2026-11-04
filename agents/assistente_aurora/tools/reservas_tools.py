@@ -88,7 +88,8 @@ def reservar_area(area: str, data: str, tool_context: ToolContext) -> dict:
     """Reserva uma área comum para o apartamento do morador numa data.
 
     Use quando o morador pedir para reservar. A reserva é sempre do apartamento
-    da sessão.
+    da sessão. Se a área tiver taxa, a reserva gera cobrança e só é gravada depois
+    que o morador confirmar; sem taxa, grava direto.
 
     Args:
         area: id da área: "salao-de-festas", "churrasqueira" ou "quadra".
@@ -96,6 +97,8 @@ def reservar_area(area: str, data: str, tool_context: ToolContext) -> dict:
 
     Returns:
         dict: {"status": "reservada", "codigo", "area", "data"},
+        {"status": "aguardando_confirmacao"} (nada foi gravado ainda),
+        {"status": "nao_reservada", "mensagem": "..."} (o morador negou),
         {"status": "ocupada", "mensagem": "..."} ou
         {"status": "erro", "mensagem": "..."}.
     """
@@ -111,6 +114,22 @@ def reservar_area(area: str, data: str, tool_context: ToolContext) -> dict:
                 "status": "ocupada",
                 "mensagem": "A área já está reservada nessa data.",
             }
+        taxa = repo.obter_area(area)["taxa"]
+        if taxa > 0:
+            if tool_context.tool_confirmation is None:
+                tool_context.request_confirmation(
+                    hint=(
+                        f"Confirmar a reserva de {area} em {data}? "
+                        f"Será gerada uma cobrança de R$ {taxa:.2f}."
+                    ),
+                    payload={"area": area, "data": data, "taxa": taxa},
+                )
+                return {"status": "aguardando_confirmacao"}
+            if not tool_context.tool_confirmation.confirmed:
+                return {
+                    "status": "nao_reservada",
+                    "mensagem": "Reserva não confirmada pelo morador. Nada foi gravado.",
+                }
         resultado = repo.criar_reserva(apartamento, area, data)
     except (sqlite3.Error, RuntimeError):
         logger.exception("Falha ao reservar área")
