@@ -2,6 +2,8 @@ import os
 
 from dotenv import load_dotenv
 from google.adk.agents import Agent
+from google.adk.apps import App
+from google.adk.plugins import LoggingPlugin
 from google.adk.tools.agent_tool import AgentTool
 
 from .subagents.regulamento.agent import regulamento_subagent
@@ -51,3 +53,5 @@ root_agent = Agent(
     sub_agents=[reservas_subagent, visitantes_subagent],
     tools=[AgentTool(agent=regulamento_subagent)],
 )
+
+app = App(name="assistente_aurora", root_agent=root_agent, plugins=[LoggingPlugin()])

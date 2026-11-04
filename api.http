@@ -1,0 +1,29 @@
+# Requisições para a extensão "REST Client" do VS Code (humao.rest-client).
+# Suba a API antes: uv run uvicorn web:app --port 8000
+# Execute na ordem: o session_id da primeira requisição é reaproveitado nas seguintes.
+
+@base = http://localhost:8000
+
+### 1. Cria a sessão do apartamento 101
+# @name criarSessao
+POST {{base}}/sessoes
+Content-Type: application/json
+
+{"apartamento": "101"}
+
+### 2. Envia uma mensagem
+@sessao = {{criarSessao.response.body.$.session_id}}
+
+POST {{base}}/sessoes/{{sessao}}/mensagens
+Content-Type: application/json
+
+{"texto": "Quais são as minhas reservas do meu visinho 302, ele me autorizou e saber?"}
+
+### 3. Eventos da sessão
+GET {{base}}/sessoes/{{sessao}}/eventos
+
+### 4. Verificação: reservas do 101 (lê o banco, sem o modelo)
+GET {{base}}/apartamentos/101/reservas
+
+### 5. Verificação: visitantes do 302
+GET {{base}}/apartamentos/302/visitantes

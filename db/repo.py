@@ -117,3 +117,22 @@ def autorizar_visitante(apartamento: str, nome: str, data: str) -> dict:
             (apartamento, nome, data),
         )
     return {"nome": nome, "data": data}
+
+
+def registrar_sessao(session_id: str, apartamento: str) -> None:
+    """Liga a sessão do ADK ao apartamento dela (definido na criação da sessão)."""
+    with conexao() as conn:
+        conn.execute(
+            "INSERT INTO sessoes_apartamento (session_id, apartamento) VALUES (?, ?)",
+            (session_id, apartamento),
+        )
+
+
+def apartamento_da_sessao(session_id: str) -> str | None:
+    """O apartamento da sessão, ou None se a sessão não existe."""
+    with conexao() as conn:
+        linha = conn.execute(
+            "SELECT apartamento FROM sessoes_apartamento WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+    return linha["apartamento"] if linha else None
