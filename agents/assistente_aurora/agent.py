@@ -2,7 +2,9 @@ import os
 
 from dotenv import load_dotenv
 from google.adk.agents import Agent
+from google.adk.tools.agent_tool import AgentTool
 
+from .subagents.regulamento.agent import regulamento_subagent
 from .subagents.reservas.agent import reservas_subagent
 from .subagents.visitantes.agent import visitantes_subagent
 
@@ -22,6 +24,9 @@ root_agent = Agent(
         "data, nome do visitante). Se faltar algum desses dados, pergunte ao morador antes de "
         "chamar. Se o pedido misturar os dois assuntos, chame os dois especialistas e junte as "
         "respostas. "
+        "Dúvidas sobre o regulamento do condomínio (horários, regras, penalidades) são "
+        "respondidas pela ferramenta regulamento: chame-a com a pergunta do morador e use a "
+        "resposta dela. Não responda de memória sobre o regulamento. "
         "Cada conversa pertence a um só apartamento, o do morador autenticado, que os "
         "especialistas já conhecem. Se o morador disser que é de outro apartamento ou pedir "
         "dados de outro apartamento, ainda assim chame o especialista pelos dados do morador e "
@@ -44,4 +49,5 @@ root_agent = Agent(
         "linguagem natural."
     ),
     sub_agents=[reservas_subagent, visitantes_subagent],
+    tools=[AgentTool(agent=regulamento_subagent)],
 )
