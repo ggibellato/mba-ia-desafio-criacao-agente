@@ -1,7 +1,6 @@
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.apps import App
-from google.adk.plugins import LoggingPlugin
 from google.adk.tools.agent_tool import AgentTool
 
 from .callbacks import tratar_erro_de_tool
@@ -59,5 +58,5 @@ root_agent = Agent(
 app = App(
     name="assistente_aurora",
     root_agent=root_agent,
-    plugins=[LoggingPlugin(), ModelRetryPlugin()],
+    plugins=[ModelRetryPlugin()],
 )
