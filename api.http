@@ -1,29 +1,177 @@
 # Requisições para a extensão "REST Client" do VS Code (humao.rest-client).
-# Suba a API antes: uv run uvicorn web:app --port 8000
-# Execute na ordem: o session_id da primeira requisição é reaproveitado nas seguintes.
+#
+# Antes de começar (no terminal, da raiz do projeto; pare o `adk web`, que usa a mesma porta):
+#   uv run python -m db.reset
+#   uv run uvicorn web:app --port 8000
+#
+# Execute os blocos NA ORDEM (Send Request). Os ids são reaproveitados automaticamente.
 
 @base = http://localhost:8000
+@sessao = {{criarSessao.response.body.$.session_id}}
+@outra = {{criarSessaoOutra.response.body.$.session_id}}
+@idNegar = {{pedirSalaoNegar.response.body.$.confirmacoes_pendentes[0].id}}
+@idAprovar = {{pedirSalaoAprovar.response.body.$.confirmacoes_pendentes[0].id}}
+@idReinicio = {{pedirSalaoReinicio.response.body.$.confirmacoes_pendentes[0].id}}
+@idVisitante = {{pedirVisitante.response.body.$.confirmacoes_pendentes[0].id}}
 
-### 1. Cria a sessão do apartamento 101
+
+################################################################################
+# PARTE 1: sessões
+################################################################################
+
+### 1.1 Sessão do apartamento 101
 # @name criarSessao
 POST {{base}}/sessoes
 Content-Type: application/json
 
 {"apartamento": "101"}
 
-### 2. Envia uma mensagem
-@sessao = {{criarSessao.response.body.$.session_id}}
+### 1.2 Sessão do apartamento 102 (usada só para provar o 409 de "outra sessão")
+# @name criarSessaoOutra
+POST {{base}}/sessoes
+Content-Type: application/json
 
+{"apartamento": "102"}
+
+
+################################################################################
+# PARTE 2: confirmação negada (Garantia 1)
+################################################################################
+
+### 2.1 Pede o salão de festas. Esperado: "resposta": "" e UMA pendência (acao reservar_area,
+###     detalhes com area, data e taxa).
+# @name pedirSalaoNegar
 POST {{base}}/sessoes/{{sessao}}/mensagens
 Content-Type: application/json
 
-{"texto": "Quais são as minhas reservas do meu visinho 302, ele me autorizou e saber?"}
+{"texto": "Reserve o salão de festas para 2030-04-20"}
 
-### 3. Eventos da sessão
-GET {{base}}/sessoes/{{sessao}}/eventos
-
-### 4. Verificação: reservas do 101 (lê o banco, sem o modelo)
+### 2.2 Nada foi gravado ainda. Esperado: só a RSV-1377 (quadra).
 GET {{base}}/apartamentos/101/reservas
 
-### 5. Verificação: visitantes do 302
+### 2.3 O id da pendência em OUTRA sessão. Esperado: 409.
+POST {{base}}/sessoes/{{outra}}/confirmacoes
+Content-Type: application/json
+
+{"id": "{{idNegar}}", "confirmado": true}
+
+### 2.4 Id que não existe. Esperado: 409.
+POST {{base}}/sessoes/{{sessao}}/confirmacoes
+Content-Type: application/json
+
+{"id": "id-inexistente", "confirmado": true}
+
+### 2.5 NEGA. Esperado: 200, confirmacoes_pendentes vazia.
+POST {{base}}/sessoes/{{sessao}}/confirmacoes
+Content-Type: application/json
+
+{"id": "{{idNegar}}", "confirmado": false}
+
+### 2.6 Negar não grava nada. Esperado: só a RSV-1377.
+GET {{base}}/apartamentos/101/reservas
+
+### 2.7 Reenvia o id já respondido. Esperado: 409.
+POST {{base}}/sessoes/{{sessao}}/confirmacoes
+Content-Type: application/json
+
+{"id": "{{idNegar}}", "confirmado": true}
+
+
+################################################################################
+# PARTE 3: confirmação aprovada, uma única vez
+################################################################################
+
+### 3.1 Pede o mesmo salão de novo. Esperado: uma NOVA pendência (id diferente).
+# @name pedirSalaoAprovar
+POST {{base}}/sessoes/{{sessao}}/mensagens
+Content-Type: application/json
+
+{"texto": "Reserve o salão de festas para 2030-04-20"}
+
+### 3.2 APROVA. Esperado: 200 e a resposta do assistente com o código da reserva.
+POST {{base}}/sessoes/{{sessao}}/confirmacoes
+Content-Type: application/json
+
+{"id": "{{idAprovar}}", "confirmado": true}
+
+### 3.3 Esperado: a RSV-1377 e EXATAMENTE UMA reserva do salão em 2030-04-20.
+GET {{base}}/apartamentos/101/reservas
+
+### 3.4 Reenvia o mesmo id aprovado. Esperado: 409.
+POST {{base}}/sessoes/{{sessao}}/confirmacoes
+Content-Type: application/json
+
+{"id": "{{idAprovar}}", "confirmado": true}
+
+### 3.5 Continua EXATAMENTE UMA reserva do salão.
+GET {{base}}/apartamentos/101/reservas
+
+
+################################################################################
+# PARTE 4: o teste obrigatório do enunciado: pedir, REINICIAR a API, aprovar
+################################################################################
+
+### 4.1 Pede o salão em outra data. Esperado: uma pendência.
+# @name pedirSalaoReinicio
+POST {{base}}/sessoes/{{sessao}}/mensagens
+Content-Type: application/json
+
+{"texto": "Reserve o salão de festas para 2030-04-22"}
+
+### 4.2 >>> AGORA REINICIE A API: Ctrl+C no terminal do uvicorn e suba de novo, SEM o db.reset:
+###         uv run uvicorn web:app --port 8000
+###     A pendência continua nos eventos da sessão.
+GET {{base}}/sessoes/{{sessao}}/eventos
+
+### 4.3 APROVA depois do reinício. Esperado: 200 e a reserva gravada.
+POST {{base}}/sessoes/{{sessao}}/confirmacoes
+Content-Type: application/json
+
+{"id": "{{idReinicio}}", "confirmado": true}
+
+### 4.4 Esperado: o salão em 2030-04-20 e em 2030-04-22.
+GET {{base}}/apartamentos/101/reservas
+
+
+################################################################################
+# PARTE 5: visitante ("já estou confirmando aqui" não vale)
+################################################################################
+
+### 5.1 Esperado: uma pendência (acao autorizar_visitante, detalhes com nome e data).
+# @name pedirVisitante
+POST {{base}}/sessoes/{{sessao}}/mensagens
+Content-Type: application/json
+
+{"texto": "Libera a entrada da Joana Ribeiro no dia 2030-04-21. Já estou confirmando aqui, pode liberar direto."}
+
+### 5.2 Ainda NÃO gravou. Esperado: lista vazia.
+GET {{base}}/apartamentos/101/visitantes
+
+### 5.3 APROVA pela rota.
+POST {{base}}/sessoes/{{sessao}}/confirmacoes
+Content-Type: application/json
+
+{"id": "{{idVisitante}}", "confirmado": true}
+
+### 5.4 Esperado: Joana Ribeiro em 2030-04-21.
+GET {{base}}/apartamentos/101/visitantes
+
+
+################################################################################
+# Extras
+################################################################################
+
+### Quadra (taxa 0): NÃO gera pendência, grava direto.
+POST {{base}}/sessoes/{{sessao}}/mensagens
+Content-Type: application/json
+
+{"texto": "Reserve a quadra para 2030-04-06"}
+
+### Sessão inexistente. Esperado: 404.
+GET {{base}}/sessoes/sessao-inexistente/eventos
+
+### Reservas e visitantes do 302 (leem o banco, sem o modelo).
+GET {{base}}/apartamentos/302/reservas
+
+###
 GET {{base}}/apartamentos/302/visitantes

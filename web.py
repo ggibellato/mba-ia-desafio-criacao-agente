@@ -9,6 +9,7 @@ sobrevivem ao reinício. Os dados do condomínio ficam em .dados/condominio.db; 
 o schema se faltar e nunca restaura os dados (isso é o `python -m db.reset`).
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -33,10 +34,19 @@ logger = logging.getLogger(__name__)
 RAIZ = Path(__file__).resolve().parent
 BANCO_SESSOES = RAIZ / ".adk" / "sessoes.db"
 NOME_DO_APP = aurora_app.name
+CONFIRMACAO = "adk_request_confirmation"
 
 BANCO_SESSOES.parent.mkdir(parents=True, exist_ok=True)
 session_service = SqliteSessionService(str(BANCO_SESSOES))
 runner = Runner(app=aurora_app, session_service=session_service)
+
+
+_travas: dict[str, asyncio.Lock] = {}
+
+
+def _trava(session_id: str) -> asyncio.Lock:
+    """Uma trava por sessão: dois turnos da mesma sessão nunca rodam juntos."""
+    return _travas.setdefault(session_id, asyncio.Lock())
 
 
 @asynccontextmanager
@@ -78,6 +88,11 @@ class RespostaMensagem(BaseModel):
     confirmacoes_pendentes: list[ConfirmacaoPendente]
 
 
+class RespostaConfirmacao(BaseModel):
+    id: str
+    confirmado: bool
+
+
 class ReservaVerificacao(BaseModel):
     codigo: str
     area: str
@@ -114,6 +129,48 @@ def _texto(evento: Event) -> str | None:
     return "\n".join(partes) if partes else None
 
 
+def _confirmacoes_pendentes(sessao: Session) -> list[ConfirmacaoPendente]:
+    """Pedidos de confirmação da sessão que ainda não têm resposta.
+
+    Cada `adk_request_confirmation` vira uma pendência; uma resposta com o mesmo id a remove.
+    Tudo sai dos eventos gravados, então a lista sobrevive ao reinício da API.
+    """
+    pendentes: dict[str, ConfirmacaoPendente] = {}
+    for evento in sessao.events:
+        if not evento.content or not evento.content.parts:
+            continue
+        for parte in evento.content.parts:
+            chamada = parte.function_call
+            if chamada and chamada.name == CONFIRMACAO and chamada.id:
+                args = chamada.args or {}
+                original = args.get("originalFunctionCall") or {}
+                detalhes = (args.get("toolConfirmation") or {}).get("payload")
+                pendentes[chamada.id] = ConfirmacaoPendente(
+                    id=chamada.id,
+                    acao=original.get("name", ""),
+                    detalhes=detalhes if isinstance(detalhes, dict) else {},
+                )
+            resposta = parte.function_response
+            if resposta and resposta.name == CONFIRMACAO and resposta.id:
+                pendentes.pop(resposta.id, None)
+    return list(pendentes.values())
+
+
+async def _executar_turno(sessao: Session, conteudo: types.Content) -> RespostaMensagem:
+    """Roda um turno e devolve o texto final da raiz e todas as pendências da sessão."""
+    resposta = ""
+    async for evento in runner.run_async(
+        user_id=sessao.user_id, session_id=sessao.id, new_message=conteudo
+    ):
+        if evento.author == aurora_app.root_agent.name and evento.is_final_response():
+            resposta = _texto(evento) or resposta
+    # Relê a sessão: os eventos do turno (inclusive uma pausa) só estão gravados agora.
+    atual = await _buscar_sessao(sessao.id)
+    return RespostaMensagem(
+        resposta=resposta, confirmacoes_pendentes=_confirmacoes_pendentes(atual)
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Rotas de conversa                                                            #
 # --------------------------------------------------------------------------- #
@@ -140,14 +197,38 @@ async def enviar_mensagem(session_id: str, pedido: NovaMensagem) -> RespostaMens
     conteudo = types.Content(
         role="user", parts=[types.Part.from_text(text=pedido.texto)]
     )
+    async with _trava(session_id):
+        return await _executar_turno(sessao, conteudo)
 
-    resposta = ""
-    async for evento in runner.run_async(
-        user_id=sessao.user_id, session_id=sessao.id, new_message=conteudo
-    ):
-        if evento.author == aurora_app.root_agent.name and evento.is_final_response():
-            resposta = _texto(evento) or resposta
-    return RespostaMensagem(resposta=resposta, confirmacoes_pendentes=[])
+
+@app.post("/sessoes/{session_id}/confirmacoes", response_model=RespostaMensagem)
+async def responder_confirmacao(
+    session_id: str, pedido: RespostaConfirmacao
+) -> RespostaMensagem:
+    """Única porta de entrada de uma confirmação: só vale para uma pendência desta sessão."""
+    async with _trava(session_id):
+        sessao = await _buscar_sessao(session_id)
+        if pedido.id not in {p.id for p in _confirmacoes_pendentes(sessao)}:
+            raise HTTPException(
+                status_code=409,
+                detail="Não existe confirmação pendente com esse id nesta sessão.",
+            )
+        conteudo = types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id=pedido.id,
+                        name=CONFIRMACAO,
+                        response={"confirmed": pedido.confirmado},
+                    )
+                )
+            ],
+        )
+        logger.info(
+            "Confirmação respondida na sessão %s: %s", session_id, pedido.confirmado
+        )
+        return await _executar_turno(sessao, conteudo)
 
 
 @app.get("/sessoes/{session_id}/eventos")
