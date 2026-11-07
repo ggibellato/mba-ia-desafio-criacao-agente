@@ -1,8 +1,8 @@
-import os
-
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 
+from ...callbacks import tratar_erro_de_tool
+from ...modelos import criar_modelo
 from ...tools.reservas_tools import (
     cancelar_reserva,
     listar_areas,
@@ -15,7 +15,8 @@ load_dotenv()
 
 reservas_subagent = Agent(
     name="reservas",
-    model=os.environ["MODELO_ESPECIALISTA"],
+    model=criar_modelo("MODELO_ESPECIALISTA"),
+    on_tool_error_callback=tratar_erro_de_tool,
     mode="single_turn",
     description=(
         "Executa tarefas de reservas de áreas comuns (salão de festas, churrasqueira e quadra) "

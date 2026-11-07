@@ -19,6 +19,7 @@ from google.adk import Runner
 from google.adk.events import Event
 from google.adk.sessions import Session
 from google.adk.sessions.sqlite_session_service import SqliteSessionService
+from google.genai import errors as erros_do_modelo
 from google.genai import types
 from pydantic import BaseModel, Field
 
@@ -35,6 +36,10 @@ RAIZ = Path(__file__).resolve().parent
 BANCO_SESSOES = RAIZ / ".adk" / "sessoes.db"
 NOME_DO_APP = aurora_app.name
 CONFIRMACAO = "adk_request_confirmation"
+MENSAGEM_DE_FALHA = (
+    "Estou com uma dificuldade técnica para responder agora. "
+    "Tente novamente em instantes."
+)
 
 BANCO_SESSOES.parent.mkdir(parents=True, exist_ok=True)
 session_service = SqliteSessionService(str(BANCO_SESSOES))
@@ -171,6 +176,25 @@ async def _executar_turno(sessao: Session, conteudo: types.Content) -> RespostaM
     )
 
 
+async def _executar_turno_seguro(
+    sessao: Session, conteudo: types.Content
+) -> RespostaMensagem:
+    """Como _executar_turno, mas uma falha do modelo (cota, rede, chave) vira resposta legível.
+
+    O que já foi gravado antes da falha continua valendo, e as pendências são recalculadas
+    dos eventos da sessão. Erros que não são do modelo seguem como erro de servidor.
+    """
+    try:
+        return await _executar_turno(sessao, conteudo)
+    except erros_do_modelo.APIError:
+        logger.exception("Falha do modelo no turno da sessão %s", sessao.id)
+        atual = await _buscar_sessao(sessao.id)
+        return RespostaMensagem(
+            resposta=MENSAGEM_DE_FALHA,
+            confirmacoes_pendentes=_confirmacoes_pendentes(atual),
+        )
+
+
 # --------------------------------------------------------------------------- #
 # Rotas de conversa                                                            #
 # --------------------------------------------------------------------------- #
@@ -198,7 +222,7 @@ async def enviar_mensagem(session_id: str, pedido: NovaMensagem) -> RespostaMens
         role="user", parts=[types.Part.from_text(text=pedido.texto)]
     )
     async with _trava(session_id):
-        return await _executar_turno(sessao, conteudo)
+        return await _executar_turno_seguro(sessao, conteudo)
 
 
 @app.post("/sessoes/{session_id}/confirmacoes", response_model=RespostaMensagem)
@@ -228,7 +252,7 @@ async def responder_confirmacao(
         logger.info(
             "Confirmação respondida na sessão %s: %s", session_id, pedido.confirmado
         )
-        return await _executar_turno(sessao, conteudo)
+        return await _executar_turno_seguro(sessao, conteudo)
 
 
 @app.get("/sessoes/{session_id}/eventos")

@@ -1,11 +1,12 @@
-import os
-
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.apps import App
 from google.adk.plugins import LoggingPlugin
 from google.adk.tools.agent_tool import AgentTool
 
+from .callbacks import tratar_erro_de_tool
+from .modelos import criar_modelo
+from .plugins import ModelRetryPlugin
 from .subagents.regulamento.agent import regulamento_subagent
 from .subagents.reservas.agent import reservas_subagent
 from .subagents.visitantes.agent import visitantes_subagent
@@ -14,7 +15,8 @@ load_dotenv()
 
 root_agent = Agent(
     name="assistente_aurora",
-    model=os.environ["MODELO_PRINCIPAL"],
+    model=criar_modelo("MODELO_PRINCIPAL"),
+    on_tool_error_callback=tratar_erro_de_tool,
     description="Assistente virtual do Residencial Aurora.",
     instruction=(
         "Você é o assistente virtual do Residencial Aurora, no aplicativo dos moradores, e é o "
@@ -54,4 +56,8 @@ root_agent = Agent(
     tools=[AgentTool(agent=regulamento_subagent)],
 )
 
-app = App(name="assistente_aurora", root_agent=root_agent, plugins=[LoggingPlugin()])
+app = App(
+    name="assistente_aurora",
+    root_agent=root_agent,
+    plugins=[LoggingPlugin(), ModelRetryPlugin()],
+)

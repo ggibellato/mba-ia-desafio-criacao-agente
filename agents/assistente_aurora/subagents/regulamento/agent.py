@@ -1,15 +1,16 @@
-import os
-
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 
+from ...callbacks import tratar_erro_de_tool
+from ...modelos import criar_modelo
 from ...tools.regulamento_tools import indice_capitulos, ler_capitulo
 
 load_dotenv()
 
 regulamento_subagent = Agent(
     name="regulamento",
-    model=os.environ["MODELO_ESPECIALISTA"],
+    model=criar_modelo("MODELO_ESPECIALISTA"),
+    on_tool_error_callback=tratar_erro_de_tool,
     description=(
         "Responde dúvidas sobre o regulamento interno do Residencial Aurora (horários, regras de "
         "uso das áreas comuns, silêncio, animais, mudanças, obras, garagem, lixo, penalidades). "

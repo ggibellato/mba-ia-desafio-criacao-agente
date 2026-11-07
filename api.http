@@ -17,6 +17,7 @@
 @sessaoB = {{criarSessaoDisputaB.response.body.$.session_id}}
 @idDisputaA = {{pedirDisputaA.response.body.$.confirmacoes_pendentes[0].id}}
 @idDisputaB = {{pedirDisputaB.response.body.$.confirmacoes_pendentes[0].id}}
+@sessaoFalha = {{criarSessaoFalha.response.body.$.session_id}}
 
 
 ################################################################################
@@ -222,6 +223,43 @@ GET {{base}}/apartamentos/201/reservas
 #        -d '{"id":"ID_B","confirmado":true}' & wait
 #
 # Esperado: as duas respondem 200 e, no bloco 6.7, só UMA reserva do salão em 2030-05-11.
+
+
+################################################################################
+# PARTE 7: falha do modelo (Etapa 13): chave inválida, a API continua no ar e responde
+################################################################################
+#
+# Este teste precisa de uma API subida COM UMA CHAVE FALSA, só para este processo. Nada
+# muda no seu .env (o valor do terminal tem prioridade sobre ele). Faça assim:
+#
+#   1. No terminal da API: Ctrl+C.
+#   2. Suba com a chave falsa (uma linha só, da raiz do projeto):
+#        GOOGLE_API_KEY=chave-invalida-de-teste uv run uvicorn web:app --port 8000
+#   3. Execute os blocos 7.1 a 7.4 abaixo.
+#   4. Quando terminar: Ctrl+C e suba normalmente de novo (sem a variável):
+#        uv run uvicorn web:app --port 8000
+
+### 7.1 Cria a sessão (não chama o modelo, então funciona mesmo com a chave falsa)
+# @name criarSessaoFalha
+POST {{base}}/sessoes
+Content-Type: application/json
+
+{"apartamento": "101"}
+
+### 7.2 Mensagem. Esperado: HTTP 200 (não 500) com "resposta": "Estou com uma dificuldade
+###     técnica para responder agora. Tente novamente em instantes." e confirmacoes_pendentes: [].
+POST {{base}}/sessoes/{{sessaoFalha}}/mensagens
+Content-Type: application/json
+
+{"texto": "Quais são as minhas reservas?"}
+
+### 7.3 A API continua no ar. Esperado: 200 e a lista de reservas (lê o banco, sem o modelo).
+GET {{base}}/apartamentos/101/reservas
+
+### 7.4 A sessão continua consultável. Esperado: 200 com os eventos.
+GET {{base}}/sessoes/{{sessaoFalha}}/eventos
+
+# No terminal da API aparece o erro do modelo (ClientError 400/401), mas nunca a chave.
 
 
 ################################################################################
