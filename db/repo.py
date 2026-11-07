@@ -1,9 +1,14 @@
+import logging
 import secrets
 import sqlite3
+import time
 
 from .engine import conexao
 
+logger = logging.getLogger(__name__)
+
 TENTATIVAS_CODIGO = 5
+TENTATIVAS_BLOQUEIO = 5
 
 
 def listar_reservas(apartamento: str) -> list[dict]:
@@ -57,6 +62,24 @@ def _novo_codigo() -> str:
     return f"RSV-{secrets.token_hex(3).upper()}"
 
 
+def _inserir_reserva(codigo: str, apartamento: str, area_id: str, data: str) -> None:
+    """INSERT da reserva. Se o banco estiver bloqueado, espera um pouco e tenta de novo."""
+    for tentativa in range(TENTATIVAS_BLOQUEIO):
+        try:
+            with conexao() as conn:
+                conn.execute(
+                    "INSERT INTO reservas (codigo, apartamento, area, data, status) "
+                    "VALUES (?, ?, ?, ?, 'ativa')",
+                    (codigo, apartamento, area_id, data),
+                )
+            return
+        except sqlite3.OperationalError as erro:
+            ultima = tentativa == TENTATIVAS_BLOQUEIO - 1
+            if "locked" not in str(erro).lower() or ultima:
+                raise
+            time.sleep(0.05 * (tentativa + 1))
+
+
 def criar_reserva(apartamento: str, area_id: str, data: str) -> dict:
     """Grava uma reserva ativa. O código é gerado aqui e nunca repete outro.
 
@@ -66,16 +89,16 @@ def criar_reserva(apartamento: str, area_id: str, data: str) -> dict:
     for _ in range(TENTATIVAS_CODIGO):
         codigo = _novo_codigo()
         try:
-            with conexao() as conn:
-                conn.execute(
-                    "INSERT INTO reservas (codigo, apartamento, area, data, status) "
-                    "VALUES (?, ?, ?, ?, 'ativa')",
-                    (codigo, apartamento, area_id, data),
-                )
+            _inserir_reserva(codigo, apartamento, area_id, data)
         except sqlite3.IntegrityError as erro:
             if "reservas.codigo" in str(erro):
                 continue
             if "reservas.area" in str(erro):
+                logger.info(
+                    "Índice ux_reserva_ativa recusou a gravação: %s já reservada em %s",
+                    area_id,
+                    data,
+                )
                 return {"status": "ocupada"}
             raise
         return {"status": "reservada", "codigo": codigo}

@@ -13,6 +13,10 @@
 @idAprovar = {{pedirSalaoAprovar.response.body.$.confirmacoes_pendentes[0].id}}
 @idReinicio = {{pedirSalaoReinicio.response.body.$.confirmacoes_pendentes[0].id}}
 @idVisitante = {{pedirVisitante.response.body.$.confirmacoes_pendentes[0].id}}
+@sessaoA = {{criarSessaoDisputaA.response.body.$.session_id}}
+@sessaoB = {{criarSessaoDisputaB.response.body.$.session_id}}
+@idDisputaA = {{pedirDisputaA.response.body.$.confirmacoes_pendentes[0].id}}
+@idDisputaB = {{pedirDisputaB.response.body.$.confirmacoes_pendentes[0].id}}
 
 
 ################################################################################
@@ -155,6 +159,69 @@ Content-Type: application/json
 
 ### 5.4 Esperado: Joana Ribeiro em 2030-04-21.
 GET {{base}}/apartamentos/101/visitantes
+
+
+################################################################################
+# PARTE 6: disputa, dois moradores pedem o mesmo salão na mesma data (Garantia 5)
+################################################################################
+
+### 6.1 Sessão do apartamento 101
+# @name criarSessaoDisputaA
+POST {{base}}/sessoes
+Content-Type: application/json
+
+{"apartamento": "101"}
+
+### 6.2 Sessão do apartamento 201
+# @name criarSessaoDisputaB
+POST {{base}}/sessoes
+Content-Type: application/json
+
+{"apartamento": "201"}
+
+### 6.3 O 101 pede o salão em 2030-05-11. Esperado: uma pendência.
+# @name pedirDisputaA
+POST {{base}}/sessoes/{{sessaoA}}/mensagens
+Content-Type: application/json
+
+{"texto": "Reserve o salão de festas para 2030-05-11"}
+
+### 6.4 O 201 pede o MESMO salão e a MESMA data. Esperado: outra pendência (nada foi gravado).
+# @name pedirDisputaB
+POST {{base}}/sessoes/{{sessaoB}}/mensagens
+Content-Type: application/json
+
+{"texto": "Reserve o salão de festas para 2030-05-11"}
+
+### 6.5 O 101 aprova. Esperado: 200 e a reserva criada.
+POST {{base}}/sessoes/{{sessaoA}}/confirmacoes
+Content-Type: application/json
+
+{"id": "{{idDisputaA}}", "confirmado": true}
+
+### 6.6 O 201 aprova DEPOIS. Esperado: 200 (resposta normal, nunca 500) e o assistente diz que a
+###     data já está ocupada.
+POST {{base}}/sessoes/{{sessaoB}}/confirmacoes
+Content-Type: application/json
+
+{"id": "{{idDisputaB}}", "confirmado": true}
+
+### 6.7 Esperado: o salão em 2030-05-11 aparece em UM só dos dois apartamentos.
+GET {{base}}/apartamentos/101/reservas
+
+###
+GET {{base}}/apartamentos/201/reservas
+
+# Para disparar as DUAS aprovações ao mesmo tempo (o REST Client envia uma por vez), execute
+# os blocos 6.1 a 6.4, copie os 2 session_id e os 2 ids das pendências da resposta de cada
+# pedido e rode no terminal:
+#
+#   curl -s -X POST localhost:8000/sessoes/SESSAO_A/confirmacoes -H 'content-type: application/json' \
+#        -d '{"id":"ID_A","confirmado":true}' &
+#   curl -s -X POST localhost:8000/sessoes/SESSAO_B/confirmacoes -H 'content-type: application/json' \
+#        -d '{"id":"ID_B","confirmado":true}' & wait
+#
+# Esperado: as duas respondem 200 e, no bloco 6.7, só UMA reserva do salão em 2030-05-11.
 
 
 ################################################################################
